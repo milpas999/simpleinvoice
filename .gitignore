@@ -1,4 +1,10 @@
 requirements.md
 
 .agents
+.claude
 skills-lock.json
+
+# Environment secrets (root-level, used by docker-compose)
+.env
+.env.local
+!.env.example
