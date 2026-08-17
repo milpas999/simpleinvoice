@@ -1,21 +1,19 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { Provider } from 'react-redux'
 import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
-import { AuthProvider } from '@/context/AuthContext'
-import { InvoiceProvider } from '@/context/InvoiceContext'
+import { store } from '@/store'
 import './index.css'
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <InvoiceProvider>
-          <App />
-          <Toaster position="top-right" />
-        </InvoiceProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <Provider store={store}>
+      <BrowserRouter>
+        <App />
+        <Toaster position="top-right" />
+      </BrowserRouter>
+    </Provider>
   </StrictMode>,
 )

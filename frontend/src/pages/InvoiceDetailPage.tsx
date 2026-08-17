@@ -1,12 +1,15 @@
 import { ArrowLeftIcon, FileQuestionIcon, MailIcon, MapPinIcon, PhoneIcon } from "lucide-react";
+import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { StatusBadge } from "@/components/invoices/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useInvoices } from "@/hooks/use-invoices";
-import { formatCurrency, formatDate, getDisplayStatus } from "@/lib/calculations";
+import { formatCurrency, formatDate } from "@/lib/calculations";
+import { fetchInvoiceByIdThunk, selectInvoiceDetail } from "@/store/invoicesSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 function LineRow({ label, value, emphasis }: { label: string; value: string; emphasis?: "muted" | "strong" }) {
   return (
@@ -19,14 +22,28 @@ function LineRow({ label, value, emphasis }: { label: string; value: string; emp
 
 export function InvoiceDetailPage() {
   const { invoiceId } = useParams<{ invoiceId: string }>();
-  const { getInvoiceById } = useInvoices();
-  const invoice = invoiceId ? getInvoiceById(invoiceId) : undefined;
+  const dispatch = useAppDispatch();
+  const { invoice, status } = useAppSelector(selectInvoiceDetail);
+
+  useEffect(() => {
+    if (invoiceId) {
+      void dispatch(fetchInvoiceByIdThunk(invoiceId));
+    }
+  }, [dispatch, invoiceId]);
+
+  if (status === "loading" || status === "idle") {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Spinner className="size-4" />
+        Loading invoice…
+      </div>
+    );
+  }
 
   if (!invoice) {
     return <InvoiceNotFoundPage />;
   }
 
-  const displayStatus = getDisplayStatus(invoice);
   const currency = (amount: number) => formatCurrency(amount, invoice.currencySymbol);
 
   return (
@@ -45,7 +62,7 @@ export function InvoiceDetailPage() {
             </p>
           </div>
         </div>
-        <StatusBadge status={displayStatus} />
+        <StatusBadge status={invoice.status} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

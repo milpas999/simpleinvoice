@@ -1,8 +1,9 @@
-import { FileTextIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertCircleIcon, FileTextIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { InvoiceFilters, type InvoiceFiltersState } from "@/components/invoices/InvoiceFilters";
 import { StatusBadge } from "@/components/invoices/StatusBadge";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import {
   Empty,
   EmptyDescription,
@@ -20,17 +21,19 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useInvoices } from "@/hooks/use-invoices";
 import { formatCurrency, formatDate } from "@/lib/calculations";
-import { queryInvoices } from "@/lib/invoice-query";
 import { getPageItems } from "@/lib/pagination";
+import { fetchInvoicesThunk, selectInvoiceList } from "@/store/invoicesSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 export function InvoiceListPage() {
-  const { invoices } = useInvoices();
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const { data, paging, status, error } = useAppSelector(selectInvoiceList);
 
   const [filters, setFilters] = useState<InvoiceFiltersState>({
     keyword: "",
@@ -40,6 +43,19 @@ export function InvoiceListPage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    void dispatch(
+      fetchInvoicesThunk({
+        page,
+        pageSize,
+        sortBy: filters.sortBy,
+        ordering: filters.ordering,
+        status: filters.status,
+        keyword: filters.keyword,
+      }),
+    );
+  }, [dispatch, page, pageSize, filters]);
 
   function updateFilters(next: InvoiceFiltersState) {
     setFilters(next);
@@ -51,23 +67,11 @@ export function InvoiceListPage() {
     setPage(1);
   }
 
-  const { data, paging } = useMemo(
-    () =>
-      queryInvoices(invoices, {
-        page,
-        pageSize,
-        sortBy: filters.sortBy,
-        ordering: filters.ordering,
-        status: filters.status,
-        keyword: filters.keyword,
-      }),
-    [invoices, page, pageSize, filters]
-  );
-
   const totalPages = Math.max(1, Math.ceil(paging.total / paging.pageSize));
   const pageItems = getPageItems(page, totalPages);
   const rangeStart = paging.total === 0 ? 0 : (paging.page - 1) * paging.pageSize + 1;
   const rangeEnd = Math.min(paging.page * paging.pageSize, paging.total);
+  const isInitialLoad = status === "loading" && data.length === 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -77,6 +81,13 @@ export function InvoiceListPage() {
       </div>
 
       <InvoiceFilters value={filters} onChange={updateFilters} />
+
+      {status === "failed" && (
+        <Alert variant="destructive">
+          <AlertCircleIcon />
+          <AlertTitle>{error ?? "Failed to load invoices."}</AlertTitle>
+        </Alert>
+      )}
 
       <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
         <Table>
@@ -105,14 +116,21 @@ export function InvoiceListPage() {
                   {formatCurrency(invoice.totalAmount, invoice.currencySymbol)}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={invoice.displayStatus} />
+                  <StatusBadge status={invoice.status} />
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
 
-        {data.length === 0 && (
+        {isInitialLoad && (
+          <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Loading invoices…
+          </div>
+        )}
+
+        {!isInitialLoad && data.length === 0 && (
           <Empty className="border-0 py-12">
             <EmptyHeader>
               <EmptyMedia variant="icon">

@@ -17,14 +17,16 @@ codebase/
 
 | Layer    | Stack                                                              |
 | -------- | ------------------------------------------------------------------- |
-| Frontend | React 19 + TypeScript, built/served with Vite                      |
+| Frontend | React 19 + TypeScript (Vite), Redux Toolkit, React Hook Form + Zod  |
 | Backend  | NestJS (TypeScript), REST API, documented with `@nestjs/swagger`   |
 | Database | PostgreSQL, accessed via TypeORM (migrations + seed script)        |
 | Auth     | JWT (JSON Web Tokens), stateless session management                |
 
 A monorepo (rather than two separate repos) was chosen so the whole stack — frontend, backend, and infrastructure — can be reviewed and run from a single clone with one `docker compose up`.
 
-> **Project status:** this repository currently contains the application scaffolding, the full Docker/local dev environment, and a complete frontend UI (all four screens, fully clickable against in-memory mock data). The backend — database schema, TypeORM integration, authentication, invoice endpoints, and seed script — is being implemented next, so the frontend is not yet wired up to a real API. See [Known Limitations](#7-known-limitations--incomplete-features) below.
+**Backend**: `auth` (login, JWT strategy/guard, `/auth/me`), `users`, `invoices` (list/detail/create, search/filter/sort/pagination, server-side totals, Overdue derivation), `common` (global exception filter, shared validators), and `database` (TypeORM data source, one baseline migration, seed script) — each a self-contained Nest module.
+
+**Frontend**: all four screens (Login, Invoice List, Invoice Detail, Create Invoice) are wired to the real API via a Redux Toolkit store (`authSlice`, `invoicesSlice`, classic `createAsyncThunk` pattern) and an Axios client that attaches the JWT and handles session expiry. Forms use React Hook Form + Zod.
 
 ## 2. Prerequisites
 
@@ -33,7 +35,9 @@ A monorepo (rather than two separate repos) was chosen so the whole stack — fr
 
 ## 3. Environment Configuration
 
-All configuration and secrets are sourced from a **single root-level `.env` file** — never hardcoded in source. Nothing is committed with real secrets; `.env` is git-ignored and `.env.example` documents every required key.
+All configuration and secrets are sourced from environment variables — never hardcoded in source. Nothing is committed with real secrets; `.env` files are git-ignored and `.env.example` files document every required key.
+
+**Docker Compose** reads a single root-level `.env`:
 
 ```bash
 cp .env.example .env
@@ -57,14 +61,21 @@ cp .env.example .env
 | `FRONTEND_PORT`      | frontend (host mapping) | Host port the frontend dev server is published on (default `5173`) |
 | `VITE_API_BASE_URL`  | frontend           | Base URL the browser uses to call the backend API           |
 
+**Running a service outside Docker** additionally needs its own `.env` (Vite and a locally-run Nest process don't read the root `.env`):
+
+```bash
+cp .env.example backend/.env    # adjust DB_HOST=localhost
+cp frontend/.env.example frontend/.env
+```
+
 ## 4. Running with Docker (single command)
 
 From the project root, with a `.env` file in place:
 
 ```bash
-docker compose up
-# or, after changing a Dockerfile or dependencies:
-docker compose up --build
+docker compose up # modern Docker
+# or
+docker-compose up # legacy Docker Compose
 ```
 
 This brings up three containers on a shared network:
@@ -96,7 +107,7 @@ Run `docker compose ps` to see live health status.
 | frontend | 5173            | `${FRONTEND_PORT}` (5173)  | http://localhost:5173               |
 | backend  | 3000            | `${BACKEND_PORT}` (3000)   | http://localhost:3000               |
 | backend health check | 3000 | `${BACKEND_PORT}` (3000)  | http://localhost:3000/health        |
-| backend Swagger docs | 3000 | `${BACKEND_PORT}` (3000)  | http://localhost:3000/api/docs *(planned)* |
+| backend Swagger docs | 3000 | `${BACKEND_PORT}` (3000)  | http://localhost:3000/api/docs      |
 | db (PostgreSQL) | 5432     | `${POSTGRES_PORT}` (5432)  | `localhost:5432` (via any Postgres client) |
 
 All host ports are configurable via the root `.env` file.
@@ -110,7 +121,7 @@ All host ports are configurable via the root `.env` file.
 ```bash
 cd backend
 npm install
-cp ../.env.example .env   # or reuse the root .env; ensure DB_HOST=localhost
+cp ../.env.example .env   # ensure DB_HOST=localhost
 npm run start:dev         # http://localhost:3000
 ```
 
@@ -119,43 +130,94 @@ npm run start:dev         # http://localhost:3000
 ```bash
 cd frontend
 npm install
+cp .env.example .env      # VITE_API_BASE_URL=http://localhost:3000
 npm run dev                # http://localhost:5173
 ```
 
-## 6. Database Seeding *(planned)*
+## 6. Database Seeding
 
-The backend will ship a seed script, runnable with a single command once the database layer is implemented:
+The backend ships a seed script, runnable with a single command:
 
 ```bash
 cd backend
 npm run seed
+# or, with the stack running under Docker:
+docker compose exec backend npm run seed
 ```
 
-This will populate the database with a default reviewer user account (credentials to be documented here) and a diverse set of sample invoices (Draft, Pending, Paid, with varied dates/amounts) per the mock dataset in `requirements.md` Appendix A.
+This populates the database with:
 
-## 7. Known Limitations / Incomplete Features
+- A default **reviewer** user account (see [Reviewer credentials](#reviewer-credentials) below).
+- The Appendix A sample invoice (`IV1780488206995`), persisted with status `Pending` — its documented `"Overdue"` status in the spec is itself a derived display value (see §2.3.2), so the closest valid persisted status is used.
+- 30 additional invoices with a randomized-but-deterministic mix of statuses (`Draft`/`Pending`/`Paid`), dates (including past-due ones, so Overdue derivation is visible), amounts, and customers.
 
-This submission currently covers project scaffolding, the full Docker/local development environment, and the complete frontend UI. Not yet implemented:
+The script is idempotent — re-running it skips any invoice number that already exists, so `npm run seed` is safe to run more than once.
 
-- TypeORM entities, database schema, and migrations
-- Authentication (`/auth/login`, `/auth/me`) and JWT guards
-- Invoice endpoints (list/detail/create) and business logic (totals, Overdue derivation)
-- Database seed script (`npm run seed`) and default reviewer credentials
-- Swagger/OpenAPI documentation at `/api/docs`
-- Wiring the frontend up to the real API (see [Frontend UI status](#9-frontend-ui-status) below)
-- Unit and integration/e2e tests
+### Reviewer credentials
 
-## 9. Frontend UI Status
+| Email                          | Password        |
+| ------------------------------- | ---------------- |
+| `reviewer@simpleinvoice.dev`    | `Reviewer123!`   |
 
-All four screens from `requirements.md` §2.1 are implemented and fully clickable: **Login**, **Invoice List** (search, filter, sort, pagination), **Invoice Detail**, and **Create Invoice**. There is no backend integration yet, so:
+Overridable via the `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` environment variables if you want different seeded credentials.
 
-- The invoice list is generated from an in-memory mock dataset (~40 records, shaped like `requirements.md` Appendix A) and all search/filter/sort/pagination logic runs client-side against it, matching the documented `GET /invoices` query contract.
-- **Login accepts any well-formed email and password** — there's no real authentication to check against yet. Client-side validation (required fields, email format) still runs.
-- Invoices created via the **Create Invoice** form are added to the in-memory list (status always `Draft`, totals computed client-side using the same formula the backend will use) and a success toast redirects to the list — nothing is persisted, so a page refresh resets both the session and any created invoices.
-- These behaviors will be replaced by real API calls once the backend endpoints above are implemented.
+## 7. Running Tests
 
-## 8. Assumptions & Design Decisions
+**Backend** (`cd backend`):
+
+```bash
+npm test           # unit tests (Jest) — no database required
+npm run test:e2e   # e2e tests (Jest + Supertest) — requires a reachable Postgres,
+                    # e.g. `docker compose up -d db`, using the same env vars as a
+                    # non-Docker backend run
+```
+
+Unit tests cover the server-side total calculation formulas, Overdue status derivation, due-date validation, and unique-invoice-number enforcement. The e2e suite covers the full "create an invoice → it appears in the list → its detail view matches" workflow, plus 409/401 error responses.
+
+**Frontend** (`cd frontend`):
+
+```bash
+npm test        # Vitest + React Testing Library
+```
+
+Covers login form validation/submission, create-invoice form validation and duplicate-invoice-number error mapping, invoice list rendering against a mocked API response, and protected-route redirect behavior.
+
+## 8. API Documentation
+
+Swagger/OpenAPI docs are generated automatically via `@nestjs/swagger` and served at **`/api/docs`** (e.g. http://localhost:3000/api/docs) whenever the backend is running. All five endpoints are documented with request/response schemas, query parameters, and status codes; use the "Authorize" button with a token from `POST /auth/login` to try protected routes directly from the UI.
+
+## 9. Database Migrations
+
+Local development relies on TypeORM's `synchronize: NODE_ENV !== 'production'` (see `backend/src/app.module.ts`) to auto-create tables from the entity definitions — no manual migration step is needed to run `docker compose up` or `npm run seed`.
+
+For production-style deployments, a hand-written baseline migration is provided (`backend/src/database/migrations/`) as the reviewable, explicit schema-change path:
+
+```bash
+cd backend
+npm run migration:run      # apply migrations
+npm run migration:generate -- src/database/migrations/SomeChange  # generate a new one
+npm run migration:revert   # roll back the last migration
+```
+
+This migration is **not** run automatically by `docker compose up` or the seed script — it exists for documentation and as the intended production path, not the local dev flow.
+
+## 10. Assumptions & Design Decisions
 
 - **Monorepo** structure was chosen over two separate repositories, per the suggested layout in `requirements.md` §2.4.1, to keep the app and its Docker orchestration reviewable from a single clone.
+- **Customer data is embedded** on the `invoices` table (`customer_fullname`, `customer_email`, `customer_mobile_number`, `customer_address`) rather than a separate `customers` table — both are explicitly acceptable per `requirements.md` §3.2, and embedding keeps list/detail queries simple for this assessment's scope (no customer reuse/listing feature is required).
+- **Frontend state management** uses Redux Toolkit with the classic `createSlice` + `createAsyncThunk` pattern (not RTK Query) alongside a plain Axios client, per the intended architecture for this build — chosen over `@tanstack/react-query` to keep all server-state handling under the Redux Toolkit umbrella.
+- **Schema management**: TypeORM `synchronize` handles table creation in development (fast, zero-setup, fits the "single command" packaging goal); a hand-written baseline migration is provided separately for production-readiness (see [§9](#9-database-migrations)) but is not part of the dev/Docker flow.
+- **No global API prefix**: endpoints are served at the bare paths shown in `requirements.md` §2.3.1 (e.g. `/auth/login`, `/invoices`) rather than under `/api`, so the existing `/health` Docker healthcheck and the documented endpoint paths both work without adjustment. Swagger is still mounted at `/api/docs`, which is just a literal path independent of any global prefix.
+- **`fromDate`/`toDate` filter `invoiceDate`**, not `dueDate` — the query parameter table in `requirements.md` §2.3.1 doesn't specify which date field these filter, and `invoiceDate` (when the invoice was issued) was judged the more natural default for a date-range filter on an invoice list.
+- **CORS** is enabled for the frontend's local dev origin(s) (`http://localhost:5173` / `FRONTEND_PORT`) directly in `main.ts`, rather than introducing an additional environment variable, since the assessment's Docker/local setup only ever serves the frontend from one of those origins.
+- **JWT storage**: the frontend stores the access token in `localStorage` and attaches it via an Axios request interceptor; a 401 response clears the token and returns the user to the login screen. This is the standard approach for a stateless bearer-token API without a same-site cookie/CSRF story to manage.
 - Docker Compose targets each service's `development` build stage by default (bind-mounted source + hot reload) to optimize for local iteration; `production` stages are provided in each Dockerfile for a production-style build/deploy path.
 - A single root-level `.env` is the source of truth for all services in Docker; `DB_HOST` inside the compose network is fixed to the `db` service name regardless of `.env`, since that value is only meaningful for local (non-Docker) runs.
+
+## 11. Known Limitations / Incomplete Features
+
+- Each invoice supports exactly one line item (the data model — `invoice_items` as a real one-to-many table — supports more, per `requirements.md` §2.1.4, but no UI/API exists yet to add a second item to an existing invoice).
+- No password reset, refresh tokens, or multi-factor authentication (explicitly out of scope per `requirements.md` §2.1.1).
+- No rate limiting on the `/auth/login` endpoint.
+- Invoice list search matches invoice number and customer name only (no line-item name search).
+- No pagination/virtualization tuning beyond the documented `page`/`pageSize` contract — very large result sets are not specifically optimized for.

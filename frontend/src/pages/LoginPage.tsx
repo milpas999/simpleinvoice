@@ -1,5 +1,7 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircleIcon, FileTextIcon, LoaderCircleIcon } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -7,41 +9,35 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
-import { LoginValidationError, type LoginFieldErrors } from "@/lib/auth-errors";
+import { loginSchema, type LoginFormValues } from "@/lib/schemas/login.schema";
 
 export function LoginPage() {
   const { isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: "", password: "" },
+  });
 
   if (isAuthenticated) {
     const from = (location.state as { from?: Location })?.from?.pathname ?? "/invoices";
     return <Navigate to={from} replace />;
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function onSubmit(values: LoginFormValues) {
     setFormError(null);
-    setFieldErrors({});
-    setIsSubmitting(true);
-
     try {
-      await login(email, password);
+      await login(values.email, values.password);
       navigate("/invoices", { replace: true });
-    } catch (error) {
-      if (error instanceof LoginValidationError) {
-        setFieldErrors(error.fieldErrors);
-      } else {
-        setFormError("Unable to sign in. Please try again.");
-      }
-    } finally {
-      setIsSubmitting(false);
+    } catch {
+      setFormError("Invalid email or password.");
     }
   }
 
@@ -61,7 +57,7 @@ export function LoginPage() {
             <CardDescription>Enter your credentials to access your invoices.</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} noValidate>
+            <form onSubmit={handleSubmit(onSubmit)} noValidate>
               <FieldGroup>
                 {formError && (
                   <Alert variant="destructive">
@@ -70,32 +66,30 @@ export function LoginPage() {
                   </Alert>
                 )}
 
-                <Field data-invalid={!!fieldErrors.email || undefined}>
+                <Field data-invalid={!!errors.email || undefined}>
                   <FieldLabel htmlFor="email">Email address</FieldLabel>
                   <Input
                     id="email"
                     type="email"
                     autoComplete="email"
                     placeholder="you@example.com"
-                    value={email}
-                    aria-invalid={!!fieldErrors.email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    aria-invalid={!!errors.email}
+                    {...register("email")}
                   />
-                  <FieldError>{fieldErrors.email}</FieldError>
+                  <FieldError>{errors.email?.message}</FieldError>
                 </Field>
 
-                <Field data-invalid={!!fieldErrors.password || undefined}>
+                <Field data-invalid={!!errors.password || undefined}>
                   <FieldLabel htmlFor="password">Password</FieldLabel>
                   <Input
                     id="password"
                     type="password"
                     autoComplete="current-password"
                     placeholder="••••••••"
-                    value={password}
-                    aria-invalid={!!fieldErrors.password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    aria-invalid={!!errors.password}
+                    {...register("password")}
                   />
-                  <FieldError>{fieldErrors.password}</FieldError>
+                  <FieldError>{errors.password?.message}</FieldError>
                 </Field>
 
                 <Button type="submit" className="w-full" disabled={isSubmitting}>
@@ -106,10 +100,6 @@ export function LoginPage() {
             </form>
           </CardContent>
         </Card>
-
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          UI preview build — no backend is connected. Any valid-looking email and password will sign you in.
-        </p>
       </div>
     </div>
   );

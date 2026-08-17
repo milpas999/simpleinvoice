@@ -1,7 +1,7 @@
-/** Status values persisted in the database. "Overdue" is never stored — see getDisplayStatus. */
+/** Status values persisted in the database. "Overdue" is never stored — the API derives it at read time. */
 export type PersistedStatus = "Draft" | "Pending" | "Paid";
 
-/** Status values the UI can show, including the read-time derived "Overdue". */
+/** Status values the API/UI can show, including the read-time derived "Overdue". */
 export type DisplayStatus = PersistedStatus | "Overdue";
 
 export const PERSISTED_STATUSES: PersistedStatus[] = ["Draft", "Pending", "Paid"];
@@ -31,7 +31,8 @@ export interface Invoice {
   currency: string;
   currencySymbol: string;
   description?: string;
-  status: PersistedStatus;
+  /** Always the derived value from the API — never a raw persisted status. */
+  status: DisplayStatus;
   taxPercent: number;
   customer: Customer;
   items: InvoiceItem[];
@@ -66,6 +67,30 @@ export interface Paging {
 }
 
 export interface InvoiceListResult {
-  data: (Invoice & { displayStatus: DisplayStatus })[];
+  data: Invoice[];
   paging: Paging;
+}
+
+/** Payload sent to POST /invoices. Status/totals/createdBy are always server-computed. */
+export interface CreateInvoicePayload {
+  invoiceNumber: string;
+  invoiceReference?: string;
+  invoiceDate: string;
+  dueDate: string;
+  currency: string;
+  currencySymbol: string;
+  description?: string;
+  customer: {
+    fullname: string;
+    email: string;
+    mobileNumber?: string;
+    address?: string;
+  };
+  item: {
+    name: string;
+    quantity: number;
+    rate: number;
+  };
+  taxPercent: number;
+  discount: number;
 }

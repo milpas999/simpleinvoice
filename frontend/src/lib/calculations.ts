@@ -1,5 +1,3 @@
-import type { DisplayStatus, Invoice } from "@/types/invoice";
-
 export interface TotalsInput {
   quantity: number;
   rate: number;
@@ -32,21 +30,6 @@ export function calculateTotals({
   const balanceAmount = totalAmount - totalPaid;
 
   return { subTotal, taxAmount, totalAmount, balanceAmount };
-}
-
-/**
- * Derived at read time, never persisted: requirements.md 2.3.2.
- * if status != "Paid" AND dueDate < today -> "Overdue", otherwise the persisted status.
- */
-export function getDisplayStatus(invoice: Pick<Invoice, "status" | "dueDate">, today = new Date()): DisplayStatus {
-  const due = new Date(`${invoice.dueDate}T00:00:00`);
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-  if (invoice.status !== "Paid" && due < todayStart) {
-    return "Overdue";
-  }
-
-  return invoice.status;
 }
 
 export function formatCurrency(amount: number, currencySymbol: string): string {

@@ -1,5 +1,6 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,11 +17,13 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAuth } from "@/hooks/use-auth";
-import { useInvoices } from "@/hooks/use-invoices";
 import { calculateTotals, formatCurrency } from "@/lib/calculations";
-import { DuplicateInvoiceNumberError } from "@/lib/invoice-errors";
-import { isNonEmpty, isOnOrAfter, isValidDateString, isValidEmail } from "@/lib/validation";
+import { createInvoiceSchema, type CreateInvoiceFormValues } from "@/lib/schemas/create-invoice.schema";
+import { createInvoiceThunk } from "@/store/invoicesSlice";
+import { useAppDispatch } from "@/store/hooks";
+import type { ApiErrorBody } from "@/types/api";
+import { firstErrorMessage } from "@/types/api";
+import type { CreateInvoicePayload } from "@/types/invoice";
 
 const CURRENCIES = [
   { currency: "AUD", currencySymbol: "AU$" },
@@ -30,181 +33,91 @@ const CURRENCIES = [
   { currency: "EUR", currencySymbol: "€" },
 ];
 
-interface FormState {
-  customerFullname: string;
-  customerEmail: string;
-  customerMobile: string;
-  customerAddress: string;
-  invoiceNumber: string;
-  invoiceDate: string;
-  dueDate: string;
-  currency: string;
-  itemName: string;
-  itemQuantity: string;
-  itemRate: string;
-  taxPercent: string;
-  discount: string;
-}
-
-type FormErrors = Partial<Record<keyof FormState, string>>;
-
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-const INITIAL_STATE: FormState = {
-  customerFullname: "",
-  customerEmail: "",
-  customerMobile: "",
-  customerAddress: "",
-  invoiceNumber: "",
-  invoiceDate: todayStr(),
-  dueDate: "",
-  currency: "AUD",
-  itemName: "",
-  itemQuantity: "1",
-  itemRate: "",
-  taxPercent: "10",
-  discount: "0",
-};
-
 export function CreateInvoicePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { addInvoice, isInvoiceNumberTaken } = useInvoices();
+  const dispatch = useAppDispatch();
 
-  const [form, setForm] = useState<FormState>(INITIAL_STATE);
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    control,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<CreateInvoiceFormValues>({
+    resolver: zodResolver(createInvoiceSchema),
+    defaultValues: {
+      customerFullname: "",
+      customerEmail: "",
+      customerMobile: "",
+      customerAddress: "",
+      invoiceNumber: "",
+      invoiceDate: todayStr(),
+      dueDate: "",
+      currency: "AUD",
+      itemName: "",
+      itemQuantity: 1,
+      itemRate: 0,
+      taxPercent: 10,
+      discount: 0,
+    },
+  });
 
-  function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
+  const [itemQuantity, itemRate, taxPercent, discount, currency] = useWatch({
+    control,
+    name: ["itemQuantity", "itemRate", "taxPercent", "discount", "currency"],
+  });
 
-  function validate(values: FormState): FormErrors {
-    const nextErrors: FormErrors = {};
+  const preview = calculateTotals({
+    quantity: Number(itemQuantity) || 0,
+    rate: Number(itemRate) || 0,
+    taxPercent: Number(taxPercent) || 0,
+    discount: Number(discount) || 0,
+    totalPaid: 0,
+  });
 
-    if (!isNonEmpty(values.customerFullname)) {
-      nextErrors.customerFullname = "Customer name is required.";
-    }
+  const currencySymbol = CURRENCIES.find((c) => c.currency === currency)?.currencySymbol ?? "";
 
-    if (!isNonEmpty(values.customerEmail)) {
-      nextErrors.customerEmail = "Customer email is required.";
-    } else if (!isValidEmail(values.customerEmail)) {
-      nextErrors.customerEmail = "Enter a valid email address.";
-    }
+  async function onSubmit(values: CreateInvoiceFormValues) {
+    const selectedCurrency = CURRENCIES.find((c) => c.currency === values.currency) ?? CURRENCIES[0];
 
-    if (!isNonEmpty(values.invoiceNumber)) {
-      nextErrors.invoiceNumber = "Invoice number is required.";
-    } else if (isInvoiceNumberTaken(values.invoiceNumber)) {
-      nextErrors.invoiceNumber = "This invoice number already exists.";
-    }
+    const payload: CreateInvoicePayload = {
+      invoiceNumber: values.invoiceNumber,
+      invoiceDate: values.invoiceDate,
+      dueDate: values.dueDate,
+      currency: selectedCurrency.currency,
+      currencySymbol: selectedCurrency.currencySymbol,
+      customer: {
+        fullname: values.customerFullname.trim(),
+        email: values.customerEmail.trim(),
+        mobileNumber: values.customerMobile?.trim() || undefined,
+        address: values.customerAddress?.trim() || undefined,
+      },
+      item: {
+        name: values.itemName.trim(),
+        quantity: values.itemQuantity,
+        rate: values.itemRate,
+      },
+      taxPercent: values.taxPercent,
+      discount: values.discount,
+    };
 
-    if (!isValidDateString(values.invoiceDate)) {
-      nextErrors.invoiceDate = "Enter a valid invoice date.";
-    }
-
-    if (!isValidDateString(values.dueDate)) {
-      nextErrors.dueDate = "Enter a valid due date.";
-    } else if (isValidDateString(values.invoiceDate) && !isOnOrAfter(values.dueDate, values.invoiceDate)) {
-      nextErrors.dueDate = "Due date must be on or after the invoice date.";
-    }
-
-    if (!isNonEmpty(values.currency)) {
-      nextErrors.currency = "Currency is required.";
-    }
-
-    if (!isNonEmpty(values.itemName)) {
-      nextErrors.itemName = "Item name is required.";
-    }
-
-    const quantity = Number(values.itemQuantity);
-    if (!Number.isInteger(quantity) || quantity <= 0) {
-      nextErrors.itemQuantity = "Quantity must be a positive integer.";
-    }
-
-    const rate = Number(values.itemRate);
-    if (!Number.isFinite(rate) || rate <= 0) {
-      nextErrors.itemRate = "Rate must be a positive number.";
-    }
-
-    const taxPercent = Number(values.taxPercent);
-    if (!Number.isFinite(taxPercent) || taxPercent < 0) {
-      nextErrors.taxPercent = "Tax must be zero or a positive number.";
-    }
-
-    const discount = Number(values.discount);
-    if (!Number.isFinite(discount) || discount < 0) {
-      nextErrors.discount = "Discount must be zero or a positive number.";
-    }
-
-    return nextErrors;
-  }
-
-  const preview = useMemo(() => {
-    const quantity = Number(form.itemQuantity);
-    const rate = Number(form.itemRate);
-    const taxPercent = Number(form.taxPercent);
-    const discount = Number(form.discount);
-
-    return calculateTotals({
-      quantity: Number.isFinite(quantity) ? quantity : 0,
-      rate: Number.isFinite(rate) ? rate : 0,
-      taxPercent: Number.isFinite(taxPercent) ? taxPercent : 0,
-      discount: Number.isFinite(discount) ? discount : 0,
-      totalPaid: 0,
-    });
-  }, [form.itemQuantity, form.itemRate, form.taxPercent, form.discount]);
-
-  const currencySymbol = CURRENCIES.find((c) => c.currency === form.currency)?.currencySymbol ?? "";
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const nextErrors = validate(form);
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) {
-      return;
-    }
-
-    setIsSubmitting(true);
     try {
-      const selectedCurrency = CURRENCIES.find((c) => c.currency === form.currency) ?? CURRENCIES[0];
-
-      const created = addInvoice({
-        invoiceNumber: form.invoiceNumber,
-        invoiceDate: form.invoiceDate,
-        dueDate: form.dueDate,
-        currency: selectedCurrency.currency,
-        currencySymbol: selectedCurrency.currencySymbol,
-        customer: {
-          fullname: form.customerFullname.trim(),
-          email: form.customerEmail.trim(),
-          mobileNumber: form.customerMobile.trim() || undefined,
-          address: form.customerAddress.trim() || undefined,
-        },
-        item: {
-          name: form.itemName.trim(),
-          quantity: Number(form.itemQuantity),
-          rate: Number(form.itemRate),
-        },
-        taxPercent: Number(form.taxPercent),
-        discount: Number(form.discount),
-        createdBy: user?.id ?? "unknown",
-      });
-
+      const created = await dispatch(createInvoiceThunk(payload)).unwrap();
       toast.success("Invoice created", {
         description: `${created.invoiceNumber} was saved as a draft.`,
       });
       navigate("/invoices");
     } catch (error) {
-      if (error instanceof DuplicateInvoiceNumberError) {
-        setErrors((prev) => ({ ...prev, invoiceNumber: error.message }));
+      const body = error as ApiErrorBody | undefined;
+      if (body?.statusCode === 409) {
+        setError("invoiceNumber", { message: firstErrorMessage(body, "This invoice number already exists.") });
       } else {
-        toast.error("Something went wrong while creating the invoice.");
+        toast.error(firstErrorMessage(body, "Something went wrong while creating the invoice."));
       }
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -222,7 +135,7 @@ export function CreateInvoicePage() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="flex flex-col gap-4 lg:col-span-2">
             <Card>
@@ -235,11 +148,10 @@ export function CreateInvoicePage() {
                     <FieldLabel htmlFor="customerFullname">Customer name</FieldLabel>
                     <Input
                       id="customerFullname"
-                      value={form.customerFullname}
                       aria-invalid={!!errors.customerFullname}
-                      onChange={(e) => setField("customerFullname", e.target.value)}
+                      {...register("customerFullname")}
                     />
-                    <FieldError>{errors.customerFullname}</FieldError>
+                    <FieldError>{errors.customerFullname?.message}</FieldError>
                   </Field>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -248,32 +160,22 @@ export function CreateInvoicePage() {
                       <Input
                         id="customerEmail"
                         type="email"
-                        value={form.customerEmail}
                         aria-invalid={!!errors.customerEmail}
-                        onChange={(e) => setField("customerEmail", e.target.value)}
+                        {...register("customerEmail")}
                       />
-                      <FieldError>{errors.customerEmail}</FieldError>
+                      <FieldError>{errors.customerEmail?.message}</FieldError>
                     </Field>
 
                     <Field>
                       <FieldLabel htmlFor="customerMobile">Customer mobile</FieldLabel>
-                      <Input
-                        id="customerMobile"
-                        type="tel"
-                        value={form.customerMobile}
-                        onChange={(e) => setField("customerMobile", e.target.value)}
-                      />
+                      <Input id="customerMobile" type="tel" {...register("customerMobile")} />
                       <FieldDescription>Optional.</FieldDescription>
                     </Field>
                   </div>
 
                   <Field>
                     <FieldLabel htmlFor="customerAddress">Customer address</FieldLabel>
-                    <Input
-                      id="customerAddress"
-                      value={form.customerAddress}
-                      onChange={(e) => setField("customerAddress", e.target.value)}
-                    />
+                    <Input id="customerAddress" {...register("customerAddress")} />
                     <FieldDescription>Optional.</FieldDescription>
                   </Field>
                 </FieldGroup>
@@ -291,28 +193,33 @@ export function CreateInvoicePage() {
                       <FieldLabel htmlFor="invoiceNumber">Invoice number</FieldLabel>
                       <Input
                         id="invoiceNumber"
-                        value={form.invoiceNumber}
                         aria-invalid={!!errors.invoiceNumber}
-                        onChange={(e) => setField("invoiceNumber", e.target.value)}
+                        {...register("invoiceNumber")}
                       />
-                      <FieldError>{errors.invoiceNumber}</FieldError>
+                      <FieldError>{errors.invoiceNumber?.message}</FieldError>
                     </Field>
 
                     <Field data-invalid={!!errors.currency || undefined}>
                       <FieldLabel htmlFor="currency">Currency</FieldLabel>
-                      <Select value={form.currency} onValueChange={(v) => setField("currency", v)}>
-                        <SelectTrigger id="currency" className="w-full" aria-invalid={!!errors.currency}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CURRENCIES.map((c) => (
-                            <SelectItem key={c.currency} value={c.currency}>
-                              {c.currency} ({c.currencySymbol})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FieldError>{errors.currency}</FieldError>
+                      <Controller
+                        control={control}
+                        name="currency"
+                        render={({ field }) => (
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <SelectTrigger id="currency" className="w-full" aria-invalid={!!errors.currency}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CURRENCIES.map((c) => (
+                                <SelectItem key={c.currency} value={c.currency}>
+                                  {c.currency} ({c.currencySymbol})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                      <FieldError>{errors.currency?.message}</FieldError>
                     </Field>
                   </div>
 
@@ -322,23 +229,16 @@ export function CreateInvoicePage() {
                       <Input
                         id="invoiceDate"
                         type="date"
-                        value={form.invoiceDate}
                         aria-invalid={!!errors.invoiceDate}
-                        onChange={(e) => setField("invoiceDate", e.target.value)}
+                        {...register("invoiceDate")}
                       />
-                      <FieldError>{errors.invoiceDate}</FieldError>
+                      <FieldError>{errors.invoiceDate?.message}</FieldError>
                     </Field>
 
                     <Field data-invalid={!!errors.dueDate || undefined}>
                       <FieldLabel htmlFor="dueDate">Due date</FieldLabel>
-                      <Input
-                        id="dueDate"
-                        type="date"
-                        value={form.dueDate}
-                        aria-invalid={!!errors.dueDate}
-                        onChange={(e) => setField("dueDate", e.target.value)}
-                      />
-                      <FieldError>{errors.dueDate}</FieldError>
+                      <Input id="dueDate" type="date" aria-invalid={!!errors.dueDate} {...register("dueDate")} />
+                      <FieldError>{errors.dueDate?.message}</FieldError>
                     </Field>
                   </div>
                 </FieldGroup>
@@ -357,13 +257,8 @@ export function CreateInvoicePage() {
                   <FieldGroup>
                     <Field data-invalid={!!errors.itemName || undefined}>
                       <FieldLabel htmlFor="itemName">Item name</FieldLabel>
-                      <Input
-                        id="itemName"
-                        value={form.itemName}
-                        aria-invalid={!!errors.itemName}
-                        onChange={(e) => setField("itemName", e.target.value)}
-                      />
-                      <FieldError>{errors.itemName}</FieldError>
+                      <Input id="itemName" aria-invalid={!!errors.itemName} {...register("itemName")} />
+                      <FieldError>{errors.itemName?.message}</FieldError>
                     </Field>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -374,11 +269,10 @@ export function CreateInvoicePage() {
                           type="number"
                           min={1}
                           step={1}
-                          value={form.itemQuantity}
                           aria-invalid={!!errors.itemQuantity}
-                          onChange={(e) => setField("itemQuantity", e.target.value)}
+                          {...register("itemQuantity")}
                         />
-                        <FieldError>{errors.itemQuantity}</FieldError>
+                        <FieldError>{errors.itemQuantity?.message}</FieldError>
                       </Field>
 
                       <Field data-invalid={!!errors.itemRate || undefined}>
@@ -388,11 +282,10 @@ export function CreateInvoicePage() {
                           type="number"
                           min={0}
                           step="0.01"
-                          value={form.itemRate}
                           aria-invalid={!!errors.itemRate}
-                          onChange={(e) => setField("itemRate", e.target.value)}
+                          {...register("itemRate")}
                         />
-                        <FieldError>{errors.itemRate}</FieldError>
+                        <FieldError>{errors.itemRate?.message}</FieldError>
                       </Field>
                     </div>
 
@@ -406,11 +299,10 @@ export function CreateInvoicePage() {
                           type="number"
                           min={0}
                           step="0.01"
-                          value={form.taxPercent}
                           aria-invalid={!!errors.taxPercent}
-                          onChange={(e) => setField("taxPercent", e.target.value)}
+                          {...register("taxPercent")}
                         />
-                        <FieldError>{errors.taxPercent}</FieldError>
+                        <FieldError>{errors.taxPercent?.message}</FieldError>
                       </Field>
 
                       <Field data-invalid={!!errors.discount || undefined}>
@@ -420,12 +312,11 @@ export function CreateInvoicePage() {
                           type="number"
                           min={0}
                           step="0.01"
-                          value={form.discount}
                           aria-invalid={!!errors.discount}
-                          onChange={(e) => setField("discount", e.target.value)}
+                          {...register("discount")}
                         />
                         <FieldDescription>Optional, defaults to 0.</FieldDescription>
-                        <FieldError>{errors.discount}</FieldError>
+                        <FieldError>{errors.discount?.message}</FieldError>
                       </Field>
                     </div>
                   </FieldGroup>
@@ -450,7 +341,7 @@ export function CreateInvoicePage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Discount</span>
-                  <span className="tabular-nums">-{formatCurrency(Number(form.discount) || 0, currencySymbol)}</span>
+                  <span className="tabular-nums">-{formatCurrency(Number(discount) || 0, currencySymbol)}</span>
                 </div>
                 <div className="my-1 border-t border-border" />
                 <div className="flex items-center justify-between text-base font-semibold">
