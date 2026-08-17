@@ -24,7 +24,7 @@ codebase/
 
 A monorepo (rather than two separate repos) was chosen so the whole stack — frontend, backend, and infrastructure — can be reviewed and run from a single clone with one `docker compose up`.
 
-> **Project status:** this repository currently contains the application scaffolding and the full Docker/local dev environment (this PR). The database schema, TypeORM integration, authentication, invoice endpoints, and seed script are being implemented next — see [Known Limitations](#7-known-limitations--incomplete-features) below.
+> **Project status:** this repository currently contains the application scaffolding, the full Docker/local dev environment, and a complete frontend UI (all four screens, fully clickable against in-memory mock data). The backend — database schema, TypeORM integration, authentication, invoice endpoints, and seed script — is being implemented next, so the frontend is not yet wired up to a real API. See [Known Limitations](#7-known-limitations--incomplete-features) below.
 
 ## 2. Prerequisites
 
@@ -135,15 +135,24 @@ This will populate the database with a default reviewer user account (credential
 
 ## 7. Known Limitations / Incomplete Features
 
-This submission currently covers project scaffolding and the full Docker/local development environment. Not yet implemented:
+This submission currently covers project scaffolding, the full Docker/local development environment, and the complete frontend UI. Not yet implemented:
 
 - TypeORM entities, database schema, and migrations
 - Authentication (`/auth/login`, `/auth/me`) and JWT guards
 - Invoice endpoints (list/detail/create) and business logic (totals, Overdue derivation)
 - Database seed script (`npm run seed`) and default reviewer credentials
 - Swagger/OpenAPI documentation at `/api/docs`
-- Frontend screens (login, invoice list, invoice detail, create invoice)
+- Wiring the frontend up to the real API (see [Frontend UI status](#9-frontend-ui-status) below)
 - Unit and integration/e2e tests
+
+## 9. Frontend UI Status
+
+All four screens from `requirements.md` §2.1 are implemented and fully clickable: **Login**, **Invoice List** (search, filter, sort, pagination), **Invoice Detail**, and **Create Invoice**. There is no backend integration yet, so:
+
+- The invoice list is generated from an in-memory mock dataset (~40 records, shaped like `requirements.md` Appendix A) and all search/filter/sort/pagination logic runs client-side against it, matching the documented `GET /invoices` query contract.
+- **Login accepts any well-formed email and password** — there's no real authentication to check against yet. Client-side validation (required fields, email format) still runs.
+- Invoices created via the **Create Invoice** form are added to the in-memory list (status always `Draft`, totals computed client-side using the same formula the backend will use) and a success toast redirects to the list — nothing is persisted, so a page refresh resets both the session and any created invoices.
+- These behaviors will be replaced by real API calls once the backend endpoints above are implemented.
 
 ## 8. Assumptions & Design Decisions
 
