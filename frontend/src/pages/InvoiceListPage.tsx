@@ -1,4 +1,4 @@
-import { AlertCircleIcon, FileTextIcon } from "lucide-react";
+import { AlertCircleIcon, ChevronDownIcon, ChevronUpIcon, FileTextIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { InvoiceFilters, type InvoiceFiltersState } from "@/components/invoices/InvoiceFilters";
@@ -27,8 +27,52 @@ import { formatCurrency, formatDate } from "@/lib/calculations";
 import { getPageItems } from "@/lib/pagination";
 import { fetchInvoicesThunk, selectInvoiceList } from "@/store/invoicesSlice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import type { SortField, SortOrder } from "@/types/invoice";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
+
+interface SortableColumnHeaderProps {
+  label: string;
+  field: SortField;
+  align?: "right";
+  sortBy: SortField;
+  ordering: SortOrder;
+  onSort: (field: SortField, ordering: SortOrder) => void;
+}
+
+function SortableColumnHeader({ label, field, align, sortBy, ordering, onSort }: SortableColumnHeaderProps) {
+  const isActive = sortBy === field;
+
+  return (
+    <div className={`flex items-center gap-1 ${align === "right" ? "justify-end" : ""}`}>
+      <span>{label}</span>
+      <span className="flex flex-col">
+        <button
+          type="button"
+          aria-label={`Sort ${label} ascending`}
+          aria-pressed={isActive && ordering === "ASC"}
+          onClick={() => onSort(field, "ASC")}
+          className={`leading-none transition-colors ${
+            isActive && ordering === "ASC" ? "text-foreground" : "text-muted-foreground/40 hover:text-muted-foreground"
+          }`}
+        >
+          <ChevronUpIcon className="size-3" />
+        </button>
+        <button
+          type="button"
+          aria-label={`Sort ${label} descending`}
+          aria-pressed={isActive && ordering === "DESC"}
+          onClick={() => onSort(field, "DESC")}
+          className={`-mt-1 leading-none transition-colors ${
+            isActive && ordering === "DESC" ? "text-foreground" : "text-muted-foreground/40 hover:text-muted-foreground"
+          }`}
+        >
+          <ChevronDownIcon className="size-3" />
+        </button>
+      </span>
+    </div>
+  );
+}
 
 export function InvoiceListPage() {
   const dispatch = useAppDispatch();
@@ -38,9 +82,9 @@ export function InvoiceListPage() {
   const [filters, setFilters] = useState<InvoiceFiltersState>({
     keyword: "",
     status: "All",
-    sortBy: "invoiceDate",
-    ordering: "DESC",
   });
+  const [sortBy, setSortBy] = useState<SortField>("invoiceDate");
+  const [ordering, setOrdering] = useState<SortOrder>("DESC");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -49,16 +93,22 @@ export function InvoiceListPage() {
       fetchInvoicesThunk({
         page,
         pageSize,
-        sortBy: filters.sortBy,
-        ordering: filters.ordering,
+        sortBy,
+        ordering,
         status: filters.status,
         keyword: filters.keyword,
       }),
     );
-  }, [dispatch, page, pageSize, filters]);
+  }, [dispatch, page, pageSize, sortBy, ordering, filters]);
 
   function updateFilters(next: InvoiceFiltersState) {
     setFilters(next);
+    setPage(1);
+  }
+
+  function updateSort(field: SortField, nextOrdering: SortOrder) {
+    setSortBy(field);
+    setOrdering(nextOrdering);
     setPage(1);
   }
 
@@ -95,9 +145,34 @@ export function InvoiceListPage() {
             <TableRow>
               <TableHead>Invoice #</TableHead>
               <TableHead>Customer</TableHead>
-              <TableHead>Invoice date</TableHead>
-              <TableHead>Due date</TableHead>
-              <TableHead className="text-right">Total amount</TableHead>
+              <TableHead>
+                <SortableColumnHeader
+                  label="Invoice date"
+                  field="invoiceDate"
+                  sortBy={sortBy}
+                  ordering={ordering}
+                  onSort={updateSort}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableColumnHeader
+                  label="Due date"
+                  field="dueDate"
+                  sortBy={sortBy}
+                  ordering={ordering}
+                  onSort={updateSort}
+                />
+              </TableHead>
+              <TableHead className="text-right">
+                <SortableColumnHeader
+                  label="Total amount"
+                  field="totalAmount"
+                  align="right"
+                  sortBy={sortBy}
+                  ordering={ordering}
+                  onSort={updateSort}
+                />
+              </TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
