@@ -1,6 +1,6 @@
 # SimpleInvoice
 
-A full-stack invoicing application built for the 101 Digital Web Engineer Assessment. See [`requirements.md`](./requirements.md) for the full specification.
+A full-stack invoicing application built for the 101 Digital Web Engineer Assessment. Built against an assessment specification document (not included in this repo) — a few sections below reference it by name for context on specific decisions.
 
 ## 1. Overview & Architecture
 
@@ -11,8 +11,7 @@ codebase/
 ├── backend/            # NestJS API (TypeScript)
 ├── frontend/           # React + TypeScript app (Vite)
 ├── docker-compose.yml  # Single-command orchestration for db + backend + frontend
-├── .env.example         # All required environment variable keys (no real secrets)
-└── requirements.md      # Assessment specification
+└── .env.example         # All required environment variable keys (no real secrets)
 ```
 
 | Layer    | Stack                                                              |
@@ -203,22 +202,22 @@ This migration is **not** run automatically by `docker compose up` or the seed s
 
 ## 10. Assumptions & Design Decisions
 
-- **Monorepo** structure was chosen over two separate repositories, per the suggested layout in `requirements.md` §2.4.1, to keep the app and its Docker orchestration reviewable from a single clone.
-- **Customer data is embedded** on the `invoices` table (`customer_fullname`, `customer_email`, `customer_mobile_number`, `customer_address`) rather than a separate `customers` table — both are explicitly acceptable per `requirements.md` §3.2, and embedding keeps list/detail queries simple for this assessment's scope (no customer reuse/listing feature is required).
+- **Monorepo** structure was chosen over two separate repositories, per the suggested layout in the assessment spec, to keep the app and its Docker orchestration reviewable from a single clone.
+- **Customer data is embedded** on the `invoices` table (`customer_fullname`, `customer_email`, `customer_mobile_number`, `customer_address`) rather than a separate `customers` table — both are explicitly acceptable per the assessment spec, and embedding keeps list/detail queries simple for this assessment's scope (no customer reuse/listing feature is required).
 - **Frontend state management** uses Redux Toolkit with the classic `createSlice` + `createAsyncThunk` pattern (not RTK Query) alongside a plain Axios client, per the intended architecture for this build — chosen over `@tanstack/react-query` to keep all server-state handling under the Redux Toolkit umbrella.
 - **Schema management**: TypeORM `synchronize` handles table creation in development (fast, zero-setup, fits the "single command" packaging goal); a hand-written baseline migration is provided separately for production-readiness (see [§9](#9-database-migrations)) but is not part of the dev/Docker flow.
-- **No global API prefix**: endpoints are served at the bare paths shown in `requirements.md` §2.3.1 (e.g. `/auth/login`, `/invoices`) rather than under `/api`, so the existing `/health` Docker healthcheck and the documented endpoint paths both work without adjustment. Swagger is still mounted at `/api/docs`, which is just a literal path independent of any global prefix.
-- **`fromDate`/`toDate` filter `invoiceDate`**, not `dueDate` — the query parameter table in `requirements.md` §2.3.1 doesn't specify which date field these filter, and `invoiceDate` (when the invoice was issued) was judged the more natural default for a date-range filter on an invoice list.
+- **No global API prefix**: endpoints are served at the bare paths documented in the assessment spec (e.g. `/auth/login`, `/invoices`) rather than under `/api`, so the existing `/health` Docker healthcheck and the documented endpoint paths both work without adjustment. Swagger is still mounted at `/api/docs`, which is just a literal path independent of any global prefix.
+- **`fromDate`/`toDate` filter `invoiceDate`**, not `dueDate` — the assessment spec's query parameter table doesn't specify which date field these filter, and `invoiceDate` (when the invoice was issued) was judged the more natural default for a date-range filter on an invoice list.
 - **CORS** is enabled for the frontend's local dev origin(s) (`http://localhost:5173` / `FRONTEND_PORT`) directly in `main.ts`, rather than introducing an additional environment variable, since the assessment's Docker/local setup only ever serves the frontend from one of those origins.
 - **JWT storage**: the frontend stores the access token in `localStorage` and attaches it via an Axios request interceptor; a 401 response clears the token and returns the user to the login screen. This is the standard approach for a stateless bearer-token API without a same-site cookie/CSRF story to manage.
 - Docker Compose targets each service's `development` build stage by default (bind-mounted source + hot reload) to optimize for local iteration; `production` stages are provided in each Dockerfile for a production-style build/deploy path.
 - A single root-level `.env` is the source of truth for all services in Docker; `DB_HOST` inside the compose network is fixed to the `db` service name regardless of `.env`, since that value is only meaningful for local (non-Docker) runs.
-- **`POST /invoices/calculate-totals`** (value add, JWT-protected like the rest of `/invoices`): per `requirements.md` §2.1.4/§2.3.2, "Total amount must be calculated by the backend, not the frontend." The Create Invoice form's live summary panel now debounces user input and calls this endpoint for the subtotal/tax/total/balance preview, instead of duplicating the formula in browser JS — so even the in-progress preview, not just the final save, is server-computed. It shares the same `calculateTotals()` utility used by `POST /invoices` to avoid formula drift between the two.
+- **`POST /invoices/calculate-totals`** (value add, JWT-protected like the rest of `/invoices`): per the assessment spec, "Total amount must be calculated by the backend, not the frontend." The Create Invoice form's live summary panel now debounces user input and calls this endpoint for the subtotal/tax/total/balance preview, instead of duplicating the formula in browser JS — so even the in-progress preview, not just the final save, is server-computed. It shares the same `calculateTotals()` utility used by `POST /invoices` to avoid formula drift between the two.
 
 ## 11. Known Limitations / Incomplete Features
 
-- Each invoice supports exactly one line item (the data model — `invoice_items` as a real one-to-many table — supports more, per `requirements.md` §2.1.4, but no UI/API exists yet to add a second item to an existing invoice).
-- No password reset, refresh tokens, or multi-factor authentication (explicitly out of scope per `requirements.md` §2.1.1).
+- Each invoice supports exactly one line item (the data model — `invoice_items` as a real one-to-many table — supports more, per the assessment spec, but no UI/API exists yet to add a second item to an existing invoice).
+- No password reset, refresh tokens, or multi-factor authentication (explicitly out of scope per the assessment spec).
 - No rate limiting on the `/auth/login` endpoint.
 - Invoice list search matches invoice number and customer name only (no line-item name search).
 - No pagination/virtualization tuning beyond the documented `page`/`pageSize` contract — very large result sets are not specifically optimized for.
