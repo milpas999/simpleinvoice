@@ -3,13 +3,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CalculateInvoiceTotalsDto } from './dto/calculate-invoice-totals.dto';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { InvoiceResponseDto } from './dto/invoice-response.dto';
 import { PagedInvoicesResponseDto } from './dto/paged-invoices-response.dto';
 import { QueryInvoicesDto } from './dto/query-invoices.dto';
+import { TotalsResponseDto } from './dto/totals-response.dto';
 import { InvoiceStatus } from './entities/invoice-status.enum';
 import { InvoicesRepository } from './invoices.repository';
 import { toInvoiceResponseDto } from './mappers/invoice.mapper';
+import { calculateTotals } from './utils/calculate-totals.util';
 
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 
@@ -33,15 +36,32 @@ export class InvoicesService {
     return toInvoiceResponseDto(invoice);
   }
 
+  calculateTotals(dto: CalculateInvoiceTotalsDto): TotalsResponseDto {
+    return calculateTotals({
+      quantity: dto.quantity,
+      rate: dto.rate,
+      taxPercent: dto.taxPercent,
+      discount: dto.discount,
+    });
+  }
+
   async create(
     dto: CreateInvoiceDto,
     createdBy: string,
   ): Promise<InvoiceResponseDto> {
-    const invoiceSubTotal = dto.item.quantity * dto.item.rate;
-    const totalTax = invoiceSubTotal * (dto.taxPercent / 100);
-    const totalAmount = invoiceSubTotal + totalTax - dto.discount;
     const totalPaid = 0;
-    const balanceAmount = totalAmount - totalPaid;
+    const {
+      subTotal: invoiceSubTotal,
+      taxAmount: totalTax,
+      totalAmount,
+      balanceAmount,
+    } = calculateTotals({
+      quantity: dto.item.quantity,
+      rate: dto.item.rate,
+      taxPercent: dto.taxPercent,
+      discount: dto.discount,
+      totalPaid,
+    });
 
     try {
       const invoice = await this.invoicesRepository.create({

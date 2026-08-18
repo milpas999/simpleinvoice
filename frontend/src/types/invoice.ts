@@ -71,6 +71,22 @@ export interface InvoiceListResult {
   paging: Paging;
 }
 
+/** Payload sent to POST /invoices/calculate-totals. */
+export interface CalculateTotalsPayload {
+  quantity: number;
+  rate: number;
+  taxPercent: number;
+  discount: number;
+}
+
+/** Response from POST /invoices/calculate-totals. */
+export interface CalculatedTotals {
+  subTotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  balanceAmount: number;
+}
+
 /** Payload sent to POST /invoices. Status/totals/createdBy are always server-computed. */
 export interface CreateInvoicePayload {
   invoiceNumber: string;

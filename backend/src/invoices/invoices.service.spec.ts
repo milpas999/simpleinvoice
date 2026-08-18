@@ -37,6 +37,24 @@ describe('InvoicesService', () => {
     });
   });
 
+  describe('calculateTotals', () => {
+    it('computes totals server-side using the documented formulas', () => {
+      const result = service.calculateTotals({
+        quantity: 2,
+        rate: 1000,
+        taxPercent: 10,
+        discount: 20,
+      });
+
+      expect(result).toEqual({
+        subTotal: 2000,
+        taxAmount: 200,
+        totalAmount: 2180,
+        balanceAmount: 2180,
+      });
+    });
+  });
+
   describe('create', () => {
     const baseDto: CreateInvoiceDto = {
       invoiceNumber: 'IV-TEST-001',

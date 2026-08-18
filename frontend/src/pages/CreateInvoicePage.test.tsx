@@ -35,6 +35,14 @@ async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
 describe("CreateInvoicePage", () => {
   beforeEach(() => {
     vi.mocked(api.post).mockReset();
+    vi.mocked(api.post).mockImplementation((url: string) => {
+      if (url === "/invoices/calculate-totals") {
+        return Promise.resolve({
+          data: { subTotal: 0, taxAmount: 0, totalAmount: 0, balanceAmount: 0 },
+        });
+      }
+      return Promise.reject(new Error(`Unexpected POST to ${url}`));
+    });
   });
 
   it("blocks submission and shows validation errors when required fields are empty", async () => {
@@ -50,11 +58,18 @@ describe("CreateInvoicePage", () => {
   });
 
   it("maps a 409 duplicate invoice number response onto the invoiceNumber field", async () => {
-    vi.mocked(api.post).mockRejectedValueOnce({
-      isAxiosError: true,
-      response: {
-        data: { statusCode: 409, message: 'Invoice number "IV-TEST-0001" already exists', error: "Conflict" },
-      },
+    vi.mocked(api.post).mockImplementation((url: string) => {
+      if (url === "/invoices/calculate-totals") {
+        return Promise.resolve({
+          data: { subTotal: 0, taxAmount: 0, totalAmount: 0, balanceAmount: 0 },
+        });
+      }
+      return Promise.reject({
+        isAxiosError: true,
+        response: {
+          data: { statusCode: 409, message: 'Invoice number "IV-TEST-0001" already exists', error: "Conflict" },
+        },
+      });
     });
 
     const user = userEvent.setup();
@@ -68,8 +83,15 @@ describe("CreateInvoicePage", () => {
   });
 
   it("navigates to the invoice list on successful creation", async () => {
-    vi.mocked(api.post).mockResolvedValueOnce({
-      data: { invoiceId: "inv-1", invoiceNumber: "IV-TEST-0001", status: "Draft" },
+    vi.mocked(api.post).mockImplementation((url: string) => {
+      if (url === "/invoices/calculate-totals") {
+        return Promise.resolve({
+          data: { subTotal: 0, taxAmount: 0, totalAmount: 0, balanceAmount: 0 },
+        });
+      }
+      return Promise.resolve({
+        data: { invoiceId: "inv-1", invoiceNumber: "IV-TEST-0001", status: "Draft" },
+      });
     });
 
     const user = userEvent.setup();

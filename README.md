@@ -184,7 +184,7 @@ Covers login form validation/submission, create-invoice form validation and dupl
 
 ## 8. API Documentation
 
-Swagger/OpenAPI docs are generated automatically via `@nestjs/swagger` and served at **`/api/docs`** (e.g. http://localhost:3000/api/docs) whenever the backend is running. All five endpoints are documented with request/response schemas, query parameters, and status codes; use the "Authorize" button with a token from `POST /auth/login` to try protected routes directly from the UI.
+Swagger/OpenAPI docs are generated automatically via `@nestjs/swagger` and served at **`/api/docs`** (e.g. http://localhost:3000/api/docs) whenever the backend is running. All endpoints — including the value-add `POST /invoices/calculate-totals` preview endpoint — are documented with request/response schemas, query parameters, and status codes; use the "Authorize" button with a token from `POST /auth/login` to try protected routes directly from the UI.
 
 ## 9. Database Migrations
 
@@ -213,6 +213,7 @@ This migration is **not** run automatically by `docker compose up` or the seed s
 - **JWT storage**: the frontend stores the access token in `localStorage` and attaches it via an Axios request interceptor; a 401 response clears the token and returns the user to the login screen. This is the standard approach for a stateless bearer-token API without a same-site cookie/CSRF story to manage.
 - Docker Compose targets each service's `development` build stage by default (bind-mounted source + hot reload) to optimize for local iteration; `production` stages are provided in each Dockerfile for a production-style build/deploy path.
 - A single root-level `.env` is the source of truth for all services in Docker; `DB_HOST` inside the compose network is fixed to the `db` service name regardless of `.env`, since that value is only meaningful for local (non-Docker) runs.
+- **`POST /invoices/calculate-totals`** (value add, JWT-protected like the rest of `/invoices`): per `requirements.md` §2.1.4/§2.3.2, "Total amount must be calculated by the backend, not the frontend." The Create Invoice form's live summary panel now debounces user input and calls this endpoint for the subtotal/tax/total/balance preview, instead of duplicating the formula in browser JS — so even the in-progress preview, not just the final save, is server-computed. It shares the same `calculateTotals()` utility used by `POST /invoices` to avoid formula drift between the two.
 
 ## 11. Known Limitations / Incomplete Features
 

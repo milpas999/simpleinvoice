@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react";
+import { useEffect } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -17,13 +18,15 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { calculateTotals, formatCurrency } from "@/lib/calculations";
+import { formatCurrency } from "@/lib/calculations";
 import { createInvoiceSchema, type CreateInvoiceFormValues } from "@/lib/schemas/create-invoice.schema";
-import { createInvoiceThunk } from "@/store/invoicesSlice";
-import { useAppDispatch } from "@/store/hooks";
+import { calculateTotalsThunk, createInvoiceThunk, resetPreviewTotals, selectPreviewTotals } from "@/store/invoicesSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type { ApiErrorBody } from "@/types/api";
 import { firstErrorMessage } from "@/types/api";
 import type { CreateInvoicePayload } from "@/types/invoice";
+
+const PREVIEW_DEBOUNCE_MS = 400;
 
 const CURRENCIES = [
   { currency: "AUD", currencySymbol: "AU$" },
@@ -71,13 +74,43 @@ export function CreateInvoicePage() {
     name: ["itemQuantity", "itemRate", "taxPercent", "discount", "currency"],
   });
 
-  const preview = calculateTotals({
-    quantity: Number(itemQuantity) || 0,
-    rate: Number(itemRate) || 0,
-    taxPercent: Number(taxPercent) || 0,
-    discount: Number(discount) || 0,
-    totalPaid: 0,
-  });
+  const preview = useAppSelector(selectPreviewTotals);
+
+  useEffect(() => {
+    dispatch(resetPreviewTotals());
+    return () => {
+      dispatch(resetPreviewTotals());
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    const quantity = Number(itemQuantity);
+    const rate = Number(itemRate);
+    const tax = Number(taxPercent);
+    const discountValue = Number(discount);
+    const isCalculable =
+      Number.isFinite(quantity) &&
+      quantity > 0 &&
+      Number.isFinite(rate) &&
+      rate > 0 &&
+      Number.isFinite(tax) &&
+      tax >= 0 &&
+      Number.isFinite(discountValue) &&
+      discountValue >= 0;
+
+    if (!isCalculable) {
+      dispatch(resetPreviewTotals());
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      void dispatch(
+        calculateTotalsThunk({ quantity, rate, taxPercent: tax, discount: discountValue }),
+      );
+    }, PREVIEW_DEBOUNCE_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [itemQuantity, itemRate, taxPercent, discount, dispatch]);
 
   const currencySymbol = CURRENCIES.find((c) => c.currency === currency)?.currencySymbol ?? "";
 
@@ -333,11 +366,11 @@ export function CreateInvoicePage() {
               <CardContent className="flex flex-col gap-1.5 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span className="tabular-nums">{formatCurrency(preview.subTotal, currencySymbol)}</span>
+                  <span className="tabular-nums">{formatCurrency(preview.totals.subTotal, currencySymbol)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Tax</span>
-                  <span className="tabular-nums">{formatCurrency(preview.taxAmount, currencySymbol)}</span>
+                  <span className="tabular-nums">{formatCurrency(preview.totals.taxAmount, currencySymbol)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Discount</span>
@@ -346,11 +379,10 @@ export function CreateInvoicePage() {
                 <div className="my-1 border-t border-border" />
                 <div className="flex items-center justify-between text-base font-semibold">
                   <span>Total</span>
-                  <span className="tabular-nums">{formatCurrency(preview.totalAmount, currencySymbol)}</span>
+                  <span className="tabular-nums">{formatCurrency(preview.totals.totalAmount, currencySymbol)}</span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  This preview is calculated in the browser for display only — the real total is always computed
-                  server-side.
+                  {preview.status === "loading" ? "Calculating…" : "Calculated server-side."}
                 </p>
 
                 <Button type="submit" className="mt-3 w-full" disabled={isSubmitting}>

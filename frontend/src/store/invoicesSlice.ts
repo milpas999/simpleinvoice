@@ -3,6 +3,8 @@ import axios from "axios";
 import { api } from "@/lib/api";
 import type { ApiErrorBody } from "@/types/api";
 import type {
+  CalculatedTotals,
+  CalculateTotalsPayload,
   CreateInvoicePayload,
   Invoice,
   InvoiceListParams,
@@ -29,12 +31,19 @@ interface InvoicesState {
     status: RequestStatus;
     error: ApiErrorBody | null;
   };
+  preview: {
+    totals: CalculatedTotals;
+    status: RequestStatus;
+  };
 }
+
+const zeroTotals: CalculatedTotals = { subTotal: 0, taxAmount: 0, totalAmount: 0, balanceAmount: 0 };
 
 const initialState: InvoicesState = {
   list: { data: [], paging: { page: 1, pageSize: 10, total: 0 }, status: "idle", error: null },
   detail: { invoice: null, status: "idle", error: null },
   create: { status: "idle", error: null },
+  preview: { totals: zeroTotals, status: "idle" },
 };
 
 function toApiErrorBody(error: unknown): ApiErrorBody | undefined {
@@ -91,6 +100,14 @@ export const createInvoiceThunk = createAsyncThunk<Invoice, CreateInvoicePayload
   },
 );
 
+export const calculateTotalsThunk = createAsyncThunk<CalculatedTotals, CalculateTotalsPayload>(
+  "invoices/calculateTotals",
+  async (payload) => {
+    const { data } = await api.post<CalculatedTotals>("/invoices/calculate-totals", payload);
+    return data;
+  },
+);
+
 const invoicesSlice = createSlice({
   name: "invoices",
   initialState,
@@ -98,6 +115,10 @@ const invoicesSlice = createSlice({
     resetCreateStatus(state) {
       state.create.status = "idle";
       state.create.error = null;
+    },
+    resetPreviewTotals(state) {
+      state.preview.totals = zeroTotals;
+      state.preview.status = "idle";
     },
   },
   extraReducers: (builder) => {
@@ -143,13 +164,24 @@ const invoicesSlice = createSlice({
           message: action.error.message ?? "Failed to create invoice",
           error: "Error",
         };
+      })
+      .addCase(calculateTotalsThunk.pending, (state) => {
+        state.preview.status = "loading";
+      })
+      .addCase(calculateTotalsThunk.fulfilled, (state, action: PayloadAction<CalculatedTotals>) => {
+        state.preview.status = "succeeded";
+        state.preview.totals = action.payload;
+      })
+      .addCase(calculateTotalsThunk.rejected, (state) => {
+        state.preview.status = "failed";
       });
   },
 });
 
-export const { resetCreateStatus } = invoicesSlice.actions;
+export const { resetCreateStatus, resetPreviewTotals } = invoicesSlice.actions;
 export default invoicesSlice.reducer;
 
 export const selectInvoiceList = (state: RootState) => state.invoices.list;
 export const selectInvoiceDetail = (state: RootState) => state.invoices.detail;
 export const selectCreateStatus = (state: RootState) => state.invoices.create;
+export const selectPreviewTotals = (state: RootState) => state.invoices.preview;

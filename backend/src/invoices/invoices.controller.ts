@@ -21,10 +21,12 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CalculateInvoiceTotalsDto } from './dto/calculate-invoice-totals.dto';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { InvoiceResponseDto } from './dto/invoice-response.dto';
 import { PagedInvoicesResponseDto } from './dto/paged-invoices-response.dto';
 import { QueryInvoicesDto } from './dto/query-invoices.dto';
+import { TotalsResponseDto } from './dto/totals-response.dto';
 import { InvoicesService } from './invoices.service';
 
 @ApiTags('invoices')
@@ -51,6 +53,18 @@ export class InvoicesController {
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
   ): Promise<InvoiceResponseDto> {
     return this.invoicesService.getById(invoiceId);
+  }
+
+  @Post('calculate-totals')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Calculate invoice totals (subtotal, tax, total, balance) server-side',
+  })
+  @ApiResponse({ status: 200, type: TotalsResponseDto })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
+  calculateTotals(@Body() dto: CalculateInvoiceTotalsDto): TotalsResponseDto {
+    return this.invoicesService.calculateTotals(dto);
   }
 
   @Post()
